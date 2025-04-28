@@ -1,0 +1,2 @@
+Multi-Objective Genetic Algorithm for Dry Reforming of Methane (DRM) Optimization
+This repository contains a Python-based implementation of a Multi-Objective Genetic Algorithm (MOGA) designed to optimize the Dry Reforming of Methane (DRM) process. The objectives are typically to maximize hydrogen (H₂) production rate while minimizing carbon formation (C<Ni> site) using fourth-order Response Surface Models (RSM) as surrogate models.
