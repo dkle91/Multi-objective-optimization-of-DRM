@@ -1,0 +1,326 @@
+pip install deap
+%reset -f
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+from deap import base, creator, tools
+
+
+seed_value = 3  # You can change this value for different results
+random.seed(seed_value)
+np.random.seed(seed_value)
+
+# Define the functions for Csite and H2
+def csite(x):
+    x1, x2, x3 = x
+    return (2.859e-05 - 0.2453 * x1 + 1.706 * x2 + 2.505 * x3 -\
+        2.599 * x1**2 + 9.034 * x2**2 + 0.0001775 * x3**2 +\
+        0.7453 * x1**3 - 0.9736 * x2**3 + 0.9247 * x3**3 +\
+        3.099 * x1**4 - 9.033 * x2**4 -\
+        0.3582 * x1 * x2 + 0.08478 * x1 * x3 + 1.705 * x2 * x3 -\
+        0.7323 * x1**2 * x2 + 0.0 * x1 * x2**2 - 3.430 * x1**2 * x3 -\
+        3.430 * x2**2 * x3 - 0.7326 * x2 * x3**2 +\
+        0.3582 * x1**3 * x2 - 0.08478 * x1**3 * x3 - 1.705 * x2**3 * x3)
+
+def h2(x):
+    x1, x2, x3 = x
+    return (1.518 + 0.7468 * x1 + 0.7244 * x2 + 2.152 * x3\
+        - 2.210 * x1**2 - 0.7683 * x2**2 - 0.1818 * x3**2\
+        - 0.7468 * x1**3 - 1.076 * x2**3 + 2.874 * x3**3\
+        + 0.8739 * x1**4 + 0.5865 * x2**4\
+        + 0.7130 * x1 * x2 + 0.8072 * x1 * x3 + 1.049 * x2 * x3\
+        + 0.3515 * x1**2 * x2 + 0.0 * x1 * x2**2\
+        - 5.026 * x1**2 * x3\
+        - 3.894 * x2**2 * x3 + 1.474 * x2 * x3**2\
+        - 0.7130 * x1**3 * x2 - 0.8072 * x1**3 * x3\
+        + 0.05443 * x2**3 * x3)
+
+# Function to ensure all variables are in the range [-1, 1]
+def enforce_bounds(individual):
+    individual[:] = [max(min(x, 1), -1) for x in individual]
+    return individual
+
+# Function to evaluate an individual
+def evaluate(individual):
+    h2_value = h2(individual)
+    csite_value = csite(individual)
+
+    # Ensure both values are non-negative
+    h2_value = max(h2_value, 0)
+    csite_value = max(csite_value, 0)
+
+    return (h2_value, csite_value)
+
+
+# Parameters for the algorithm
+population_size = 100
+generations = 200
+stagnation_limit = 5
+min_generations = 20
+smoothing_factor = 0.000001  # Adjust the smoothing factor to make the curve thinner
+mutation_sigma = 0.1
+mutation_probability = 0.3
+crossover_probability = 0.7
+alpha = 0.5  # Blend factor for crossover
+pareto_limit = 10
+
+# Function to calculate crowding distance
+def calculate_crowding_distance(front, n_obj):
+    # Initialize crowding distance
+    crowding_dist = [0] * len(front)
+
+    for i in range(n_obj):
+        front.sort(key=lambda ind: ind.fitness.values[i])  # Sort individuals by objective i
+
+        # Set crowding distance of boundary individuals to infinity
+        crowding_dist[0] = float('inf')
+        crowding_dist[-1] = float('inf')
+
+        # Calculate crowding distance for the rest
+        min_obj = front[0].fitness.values[i]
+        max_obj = front[-1].fitness.values[i]
+
+        for j in range(1, len(front) - 1):
+            if max_obj - min_obj == 0:
+                crowding_dist[j] = float('inf')
+            else:
+                crowding_dist[j] += (front[j + 1].fitness.values[i] - front[j - 1].fitness.values[i]) / (max_obj - min_obj)
+
+    return crowding_dist
+
+# Function to get a limited Pareto front based on crowding distance
+def get_limited_pareto_front(population, size_limit):
+    # Sort population by non-domination (first front only)
+    pareto_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
+
+    # Calculate crowding distance for each individual in the Pareto front
+    crowding_distances = calculate_crowding_distance(pareto_front, len(pareto_front[0].fitness.values))
+
+    # Sort the Pareto front by crowding distance (higher crowding distance means better spread)
+    pareto_front_sorted = [ind for _, ind in sorted(zip(crowding_distances, pareto_front), reverse=True)]
+
+    # Select the top 'size_limit' individuals based on crowding distance
+    return pareto_front_sorted[:size_limit]
+
+# Main genetic algorithm loop
+def main():
+    # Initialize population
+    creator.create("FitnessMulti", base.Fitness, weights=(1.0, -1.0))  # Maximize h2, Minimize csite
+    creator.create("Individual", list, fitness=creator.FitnessMulti)
+
+    toolbox = base.Toolbox()
+    toolbox.register("attr_float", random.uniform, -1, 1)
+    toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_float, n=3)
+    toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+    toolbox.register("evaluate", lambda ind: (h2(ind), csite(ind)))  # First is h2, second is Ciste
+    toolbox.register("mate", tools.cxBlend, alpha=alpha)
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=mutation_sigma, indpb=mutation_probability)
+    toolbox.register("select", tools.selNSGA2)
+
+    # Initialize population
+    population = toolbox.population(n=population_size)
+
+    best_fitness = -np.inf
+    stagnation_count = 0
+    generation_count = 0
+
+    # To store Pareto front data and all generations' data
+    all_pareto_fronts = []
+    all_h2_values = []
+    all_csite_values = []
+
+    for gen in range(generations):
+        generation_count += 1
+
+        # Evaluate the population
+        fitnesses = list(map(toolbox.evaluate, population))
+
+        # Filter out individuals with negative H2 or Csite values
+        invalid_individuals = [
+            ind for ind, fit in zip(population, fitnesses)
+            if fit[0] < 0 or fit[1] < 0  # Filter if H2 or Csite is negative
+        ]
+
+        # Remove invalid individuals from population
+        population = [ind for ind in population if ind not in invalid_individuals]
+        fitnesses = [fit for fit in fitnesses if fit[0] >= 0 and fit[1] >= 0]  # Keep only valid fitnesses
+
+        # Update fitness values for valid individuals
+        for ind, fit in zip(population, fitnesses):
+            ind.fitness.values = fit
+
+        # Store H2 and Csite values for each generation
+        h2_vals = [h2(ind) for ind in population]
+        csite_vals = [csite(ind) for ind in population]
+        all_h2_values.append(h2_vals)
+        all_csite_values.append(csite_vals)
+
+        # Extract Pareto front for this generation (non-dominated individuals)
+        pareto_front = tools.sortNondominated(population, len(population), first_front_only=True)[0]
+        pareto_values = [(h2(ind), csite(ind), ind) for ind in pareto_front]  # Save individual variables along with objectives
+        all_pareto_fronts.append(pareto_values)
+
+        # Get limited Pareto front with crowding distance
+        limited_pareto_front = get_limited_pareto_front(pareto_front, size_limit=pareto_limit)  # Limit to pareto_limit points
+        limited_pareto_values = [(h2(ind), csite(ind), ind) for ind in limited_pareto_front]
+        all_pareto_fronts[-1] = limited_pareto_values  # Replace Pareto front with limited version
+
+        # Check for stagnation
+        current_best = max(population, key=lambda ind: ind.fitness.values[0])
+        if current_best.fitness.values[0] > best_fitness:
+            best_fitness = current_best.fitness.values[0]
+            stagnation_count = 0
+        else:
+            stagnation_count += 1
+
+        # Terminate if no improvement for a certain number of generations
+        if stagnation_count >= stagnation_limit and generation_count >= min_generations:
+            print(f"Terminating after {gen} generations due to stagnation.")
+            break
+
+        # Select the next generation
+        offspring = toolbox.select(population, len(population))
+        offspring = list(map(toolbox.clone, offspring))
+
+        # Apply crossover and mutation
+        for i in range(1, len(offspring), 2):
+            child1 = offspring[i - 1]
+            child2 = offspring[i]
+            if random.random() < crossover_probability:
+                toolbox.mate(child1, child2)
+                del child1.fitness.values
+                del child2.fitness.values
+                enforce_bounds(child1)
+                enforce_bounds(child2)
+
+        for mutant in offspring:
+            if random.random() < mutation_probability:
+                toolbox.mutate(mutant)
+                del mutant.fitness.values
+                enforce_bounds(mutant)
+
+        # Evaluate the new individuals
+        invalid_individuals = [ind for ind in offspring if not ind.fitness.valid or h2(ind) < 0 or csite(ind) < 0]
+        fitnesses = list(map(toolbox.evaluate, invalid_individuals))
+        for ind, fit in zip(invalid_individuals, fitnesses):
+            ind.fitness.values = fit
+
+        # Replace the old population with the new one
+        population[:] = offspring
+
+    # Flatten all generations' H2 and Csite values for plotting
+    all_h2_values_flat = [h2_val for sublist in all_h2_values for h2_val in sublist]
+    all_csite_values_flat = [csite_val for sublist in all_csite_values for csite_val in sublist]
+
+    # Graph 1: All generations with different colors
+    plt.figure(figsize=(15, 9))
+    for gen in range(generation_count):
+        plt.scatter(all_h2_values[gen], all_csite_values[gen], marker='.', label=f"Generation {gen+1}")
+    plt.xlabel("H2 production rate (g/s)",fontsize=17)
+    plt.ylabel("C<Ni> site coverage",fontsize=17)
+    plt.title("Genetic Algoritm Process",fontsize=17)
+    plt.tick_params(axis='x', labelsize=15)
+    plt.tick_params(axis='y', labelsize=15)
+    plt.legend(fontsize=13.5)
+    plt.show()
+
+
+    # Graph 3: Pareto front with polynomial fit and markers for lowest, highest, and median points
+    plt.figure(figsize=(15, 9))
+    plt.scatter(all_h2_values_flat, all_csite_values_flat, marker='.', color='b', label="All individuals")
+
+    # Flatten all Pareto fronts to include H2, Csite, and individual variables
+    all_pareto_points = [(item[0], item[1], item[2]) for sublist in all_pareto_fronts for item in sublist]
+
+    # Plot Pareto front in red
+    pareto_front_flat = [item[:2] for sublist in all_pareto_fronts for item in sublist]
+    pareto_front_h2 = [item[0] for item in pareto_front_flat]
+    pareto_front_csite = [item[1] for item in pareto_front_flat]
+    plt.scatter(pareto_front_h2, pareto_front_csite, marker='.', color='r', label="Pareto Front")
+
+    # Sort the Pareto front data by H2 to ensure correct fitting
+    sorted_pareto_data = sorted(pareto_front_flat)
+    sorted_pareto_h2 = [item[0] for item in sorted_pareto_data]
+    sorted_pareto_csite = [item[1] for item in sorted_pareto_data]
+
+    # Fit a polynomial to the Pareto front (e.g., 3rd degree polynomial)
+    degree = 2
+    poly_coeffs = np.polyfit(sorted_pareto_h2, sorted_pareto_csite, degree)
+
+    # Create a polynomial function from the coefficients
+    poly_fit = np.poly1d(poly_coeffs)
+
+    # Generate the fitted values
+    x_range = np.linspace(min(sorted_pareto_h2), max(sorted_pareto_h2), 100)
+    y_range = poly_fit(x_range)
+
+    # Plot the fitted polynomial curve
+    plt.plot(x_range, y_range, 'r--', label=f"Fitted Pareto Curve")
+
+    # Add markers for the lowest, highest, and median points
+    min_idx = np.argmin(sorted_pareto_csite)  # Index of the lowest Csite
+    max_idx = np.argmax(sorted_pareto_h2)  # Index of the highest H2
+    median_idx = len(sorted_pareto_csite)//2+2 # Index of the median point
+
+    # Add reference point (H2 = 3.006, Ciste = 3.662) in black square
+    plt.scatter(3.006, 3.662, color='k', marker='s', label="Original design")
+    # Plot the lowest, highest, and median points
+    plt.scatter(sorted_pareto_h2[max_idx], sorted_pareto_csite[max_idx], color='m', marker='p', label="Optimal design A (maximum H2)")
+    plt.scatter(sorted_pareto_h2[median_idx], sorted_pareto_csite[median_idx], color='y', marker='p', label="Optimal design B")
+    plt.scatter(sorted_pareto_h2[min_idx], sorted_pareto_csite[min_idx], color='g', marker='p', label="Optimal design C (minimum Csite)")
+
+    # Display the graph
+    plt.xlabel("H2 production rate (g/s)",fontsize=17)
+    plt.ylabel("C<Ni> site coverage",fontsize=17)
+    plt.title("Pareto Front",fontsize=17)
+    plt.legend(fontsize=15)
+    plt.tick_params(axis='x', labelsize=15)
+    plt.tick_params(axis='y', labelsize=15)
+    plt.show()
+
+    # Print Pareto front points along with individual variables (x1, x2, x3)
+    print("Individuals in the Pareto front:")
+    print("All Pareto Front Points:")
+    for h2_value, csite_value, individual in all_pareto_points:
+      print(f"H2: {h2_value:.3f}, Csite: {csite_value:.3f}, individual = {list(map(lambda x: round(x, 4), individual))}")
+
+
+    # Extract the full Pareto front data (H2, Csite, and variables)
+    pareto_front_full = [(item[0], item[1], item[2]) for sublist in all_pareto_fronts for item in sublist]
+
+    # Extract H2 and Csite for plotting
+    pareto_front_h2 = [item[0] for item in pareto_front_full]
+    pareto_front_csite = [item[1] for item in pareto_front_full]
+
+    # Sort the Pareto front data by H2 to ensure correct fitting
+    sorted_pareto_full = sorted(pareto_front_full, key=lambda x: x[0])  # Sort by H2
+    sorted_pareto_h2 = [item[0] for item in sorted_pareto_full]
+    sorted_pareto_csite = [item[1] for item in sorted_pareto_full]
+    sorted_pareto_individuals = [item[2] for item in sorted_pareto_full]  # Extract individuals
+
+    # Identify the indices of the lowest Csite, highest H2, and median points
+    min_idx = np.argmin(sorted_pareto_csite)
+    max_idx = np.argmax(sorted_pareto_h2)
+    median_idx = len(sorted_pareto_full)//2+2
+
+    # Print the lowest, median, and highest values with their variables
+    print("\nLowest, Median, and Highest Points:")
+
+    # Lowest Csite point
+    print(f"Optimal design C (minimum Csite): H2 = {sorted_pareto_h2[min_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[min_idx]:.3f}, "
+          f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[min_idx]))}")
+
+    # Median point
+    print(f"Optimal design B: H2 = {sorted_pareto_h2[median_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[median_idx]:.3f}, "
+          f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[median_idx]))}")
+
+    # Highest H2 point
+    print(f"Optimal design A (maximum H2): H2 = {sorted_pareto_h2[max_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[max_idx]:.3f}, "
+          f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[max_idx]))}")
+
+
+# Run the algorithm
+main()
