@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from deap import base, creator, tools
 
 
-seed_value = 10  # You can change this value for different results
+seed_value = 13  # You can change this value for different results
 random.seed(seed_value)
 np.random.seed(seed_value)
 
@@ -15,45 +15,35 @@ np.random.seed(seed_value)
 # Define the functions for Csite and H2
 def csite(x):
     x1, x2, x3 = x
-    return (-0.09390\
-        - 0.1609 * x1\
+    return (-3.131e-05\
+        + 4.334e-03 * x1\
         + 5.123e-05 * x2\
         + 2.582e-05 * x3\
-        + 0.5304 * x1**2\
-        + 0.04828 * x2**2\
-        + 0.04828 * x3**2\
-        + 0.6609 * x1**3\
-        + 0.001634 * x2**3\
-        - 0.01685 * x3**3\
-        - 9.874e-05 * x1 * x2\
-        + 9.287e-04 * x1 * x3\
-        + 1.353e-04 * x2 * x3\
-        - 0.001685 * x1**2 * x2\
-        + 6.833e-17 * x1 * x2**2\
-        + 0.01682 * x1**2 * x3\
-        + 0.01648 * x2**2 * x3\
-        - 0.001982 * x2 * x3**2)
+        + 8.468e-03 * x1**2\
+        + 4.099e-04 * x2**2\
+        - 3.485e-04 * x2**3\
+        - 3.633e-04 * x3**3\
+        - 8.886e-04 * x1 * x2\
+        + 8.358e-03 * x1 * x3\
+        + 1.354e-04 * x2 * x3\
+        - 1.685e-03 * x1**2 * x2\
+        + 1.682e-02 * x1**2 * x3)
 
 def h2(x):
     x1, x2, x3 = x
-    return (1.258\
-        + 0.7468 * x1\
-        + 0.7244 * x2\
-        + 2.152 * x3\
-        - 1.230 * x1**2\
-        - 0.05372 * x2**2\
-        - 0.05372 * x3**2\
-        - 0.7468 * x1**3\
-        + 0.01147 * x2**3\
-        + 1.787 * x3**3\
-        + 0.06726 * x1 * x2\
-        + 0.05941 * x1 * x3\
-        + 1.097 * x2 * x3\
-        - 0.7359 * x1**2 * x2\
-        + 2.129e-15 * x1 * x2**2\
-        - 3.939 * x1**2 * x3\
-        - 2.807 * x2**2 * x3\
-        + 0.3868 * x2 * x3**2)
+    return (1.41851\
+        + 0.56011 * x1\
+        + 0.72445 * x2\
+        + 2.15153 * x3\
+        - 2.12452 * x1**2\
+        - 0.27223 * x2**2\
+        + 0.39832 * x2**3\
+        - 1.01991 * x3**3\
+        + 0.60538 * x1 * x2\
+        + 0.53472 * x1 * x3\
+        + 1.09699 * x2 * x3\
+        - 0.73592 * x1**2 * x2\
+        - 3.93859 * x1**2 * x3)
 
 # Function to ensure all variables are in the range [-1, 1]
 def enforce_bounds(individual):
@@ -73,9 +63,9 @@ def evaluate(individual):
 
 
 # Parameters for the algorithm
-population_size = 100
+population_size = 300
 generations = 200
-stagnation_limit = 3
+stagnation_limit = 10
 min_generations = 20
 smoothing_factor = 0.0000000000000001  # Adjust the smoothing factor to make the curve thinner
 mutation_sigma = 0.3
@@ -83,8 +73,8 @@ mutation_probability = 0.3
 crossover_probability = 0.7
 alpha = 0.5  # Blend factor for crossover
 pareto_limit = 50
-b_position = 20
-Csite_limit = 0.1
+b_position = 31
+Csite_limit = 0.01
 degree = 2
 
 # Function to calculate crowding distance
@@ -247,7 +237,7 @@ def main():
     #plt.legend(fontsize=13.5)
     #plt.show()
 
-    # Graph 1: All generations with different colors  
+    # Graph 1: All generations with different colors
     plt.figure(figsize=(15, 9))
     # Create a single array of color values for all generations
     color_values = np.concatenate([np.full(len(all_h2_values[gen]), gen) for gen in range(generation_count)])
@@ -279,7 +269,7 @@ def main():
     pareto_front_flat = [item[:2] for sublist in all_pareto_fronts for item in sublist]
     pareto_front_h2 = [item[0] for item in pareto_front_flat]
     pareto_front_csite = [item[1] for item in pareto_front_flat]
-    plt.scatter(pareto_front_h2, pareto_front_csite, marker='.', color='r', label="Pareto Front")
+    plt.scatter(pareto_front_h2, pareto_front_csite, marker='.', color='r', label="Pareto front")
 
     # Sort the Pareto front data by H2 to ensure correct fitting
     sorted_pareto_data = sorted(pareto_front_flat)
@@ -297,7 +287,7 @@ def main():
     y_range = poly_fit(x_range)
 
     # Plot the fitted polynomial curve
-    plt.plot(x_range, y_range, 'r--', label=f"Fitted Pareto Curve")
+    plt.plot(x_range, y_range, 'r--', label=f"Fitted Pareto curve")
 
     # Add markers for the lowest, highest, and median points
     min_idx = np.argmin(sorted_pareto_csite)  # Index of the lowest Csite
@@ -324,7 +314,7 @@ def main():
     print("Individuals in the Pareto front:")
     print("All Pareto Front Points:")
     for h2_value, csite_value, individual in all_pareto_points:
-      print(f"H2: {h2_value:.3f}, Csite: {csite_value:.3f}, individual = {list(map(lambda x: round(x, 4), individual))}")
+      print(f"H2: {h2_value:.3f}, Csite: {csite_value:.10f}, individual = {list(map(lambda x: round(x, 4), individual))}")
 
 
     # Extract the full Pareto front data (H2, Csite, and variables)
@@ -350,22 +340,19 @@ def main():
 
     # Lowest Csite point
     print(f"Optimal design C (minimum Csite): H2 = {sorted_pareto_h2[min_idx]:.3f}, "
-          f"Csite = {sorted_pareto_csite[min_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[min_idx]:.10f}, "
           f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[min_idx]))}")
 
     # Median point
     print(f"Optimal design B (balanced trade-off): H2 = {sorted_pareto_h2[median_idx]:.3f}, "
-          f"Csite = {sorted_pareto_csite[median_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[median_idx]:.10f}, "
           f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[median_idx]))}")
 
     # Highest H2 point
     print(f"Optimal design A (maximum H2): H2 = {sorted_pareto_h2[max_idx]:.3f}, "
-          f"Csite = {sorted_pareto_csite[max_idx]:.3f}, "
+          f"Csite = {sorted_pareto_csite[max_idx]:.10f}, "
           f"individual = {list(map(lambda x: round(x, 4), sorted_pareto_individuals[max_idx]))}")
 
 
 # Run the algorithm
 main()
-
-
-
